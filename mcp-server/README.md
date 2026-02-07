@@ -12,40 +12,57 @@ This server exposes your Feedbin account as a set of tools that any MCP-compatib
 - "Show me everything tagged 'tech'"
 - "Save this URL for later reading"
 
+## Two Transport Modes
+
+| Mode | Entry Point | Use Case |
+|---|---|---|
+| **stdio** (default) | `build/index.js` | Local — Claude Desktop / Claude Code launches it for you |
+| **HTTP** | `build/http.js` | Remote — deploy to Railway, a VPS, or Docker |
+
 ## Prerequisites
 
 - **Node.js 18+** (check with `node --version`)
 - A **Feedbin account** (https://feedbin.com/)
 
-## Quick Start
+## Quick Start (Local / stdio)
 
 ```bash
-# 1. Install dependencies
 cd mcp-server
 npm install
-
-# 2. Build
 npm run build
 
-# 3. Test that it starts (Ctrl+C to stop)
+# Test that it starts (Ctrl+C to stop)
 FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm start
 ```
 
+Then configure your MCP client (see "Connecting to an MCP Client" below).
+
 ## Configuration
 
-The server reads two environment variables:
+### Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `FEEDBIN_EMAIL` | Yes | Your Feedbin account email |
-| `FEEDBIN_PASSWORD` | Yes | Your Feedbin account password |
+| Variable | Required | Where | Description |
+|---|---|---|---|
+| `FEEDBIN_EMAIL` | Yes | Both modes | Your Feedbin account email |
+| `FEEDBIN_PASSWORD` | Yes | Both modes | Your Feedbin account password |
+| `MCP_API_KEY` | HTTP mode only | HTTP mode | Bearer token clients must send to authenticate |
+| `PORT` | No | HTTP mode | Port to listen on (default: 3000, Railway sets automatically) |
+
+### Generating an API Key
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Save this value — you'll set it as `MCP_API_KEY` on your server and use it in your MCP client config.
 
 ## Connecting to an MCP Client
 
-### Claude Desktop
+### Local (stdio mode)
 
-Add this to your Claude Desktop config file:
+#### Claude Desktop
 
+Add to your config file:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
@@ -66,7 +83,7 @@ Add this to your Claude Desktop config file:
 
 Restart Claude Desktop after saving.
 
-### Claude Code (CLI)
+#### Claude Code (CLI)
 
 ```bash
 claude mcp add feedbin \
@@ -75,7 +92,7 @@ claude mcp add feedbin \
   -- node /absolute/path/to/mcp-server/build/index.js
 ```
 
-### Cursor
+#### Cursor
 
 Add to `.cursor/mcp.json` in your project root:
 
@@ -93,6 +110,92 @@ Add to `.cursor/mcp.json` in your project root:
   }
 }
 ```
+
+### Remote (HTTP mode)
+
+For remote servers (Railway, VPS, etc.), configure your MCP client to connect via URL:
+
+#### Claude Desktop (remote)
+
+```json
+{
+  "mcpServers": {
+    "feedbin": {
+      "url": "https://your-railway-app.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_API_KEY"
+      }
+    }
+  }
+}
+```
+
+#### Claude Code (remote)
+
+```bash
+claude mcp add feedbin \
+  --transport http \
+  --header "Authorization: Bearer YOUR_MCP_API_KEY" \
+  https://your-railway-app.up.railway.app/mcp
+```
+
+## Deploying to Railway
+
+Railway can deploy directly from your GitHub repo. Here's the step-by-step:
+
+### 1. Generate your API key locally
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Save this — e.g. a1b2c3d4e5f6...
+```
+
+### 2. Create a new Railway project
+
+- Go to [railway.app](https://railway.app) and click **New Project** > **Deploy from GitHub repo**
+- Select this repository
+
+### 3. Configure the service
+
+In Railway's service settings:
+
+- **Root Directory**: `mcp-server`
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm run start:http`
+
+### 4. Set environment variables
+
+In Railway's **Variables** tab, add:
+
+| Variable | Value |
+|---|---|
+| `FEEDBIN_EMAIL` | your Feedbin email |
+| `FEEDBIN_PASSWORD` | your Feedbin password |
+| `MCP_API_KEY` | the key you generated in step 1 |
+
+Railway sets `PORT` automatically — you don't need to add it.
+
+### 5. Deploy
+
+Railway will build and deploy. Once live, you'll get a URL like `https://your-app.up.railway.app`.
+
+### 6. Verify
+
+```bash
+curl https://your-app.up.railway.app/health
+# Should return: {"status":"ok","server":"feedbin-mcp"}
+```
+
+### 7. Connect your MCP client
+
+Use the URL `https://your-app.up.railway.app/mcp` with your API key as shown in the "Remote (HTTP mode)" section above.
+
+### Security Notes
+
+- Your **Feedbin credentials** are stored only as Railway environment variables — encrypted at rest, never in code, never in logs.
+- The **MCP_API_KEY** acts as a password for your MCP server. Anyone with this key can read/modify your Feedbin data through the server. Keep it secret.
+- Railway provides **HTTPS by default** — all traffic between your MCP client and the server is encrypted.
+- The `/health` endpoint is unauthenticated (it returns no sensitive data) so Railway can use it for health checks.
 
 ## Available Tools
 
@@ -147,79 +250,21 @@ Add to `.cursor/mcp.json` in your project root:
 | `get_import_status` | Check OPML import progress |
 | `verify_credentials` | Test that your credentials work |
 
-## Hosting Options
-
-Since this is new to you, here's a breakdown of where and how you can run this.
-
-### Option 1: Run Locally (Simplest)
-
-Just build and point your MCP client at the built file. The MCP client (Claude Desktop, etc.) starts and stops the server process automatically.
-
-**Pros**: No server to manage, no cost, no network latency.
-**Cons**: Only works on your machine.
-
-```bash
-npm run build
-# Then configure your MCP client as shown above
-```
-
-### Option 2: Run on a VPS (DigitalOcean, Linode, Fly.io, etc.)
-
-For remote access, deploy to a cheap VPS and use the HTTP+SSE transport instead of stdio. This requires a small code change (swap `StdioServerTransport` for an HTTP transport).
-
-**Rough steps:**
-1. Provision a small VM ($5-6/month on DigitalOcean/Linode)
-2. Clone the repo, `npm install && npm run build`
-3. Use a process manager like `pm2` to keep it running: `pm2 start build/index.js`
-4. Put it behind nginx with HTTPS (Let's Encrypt)
-5. Point your MCP client at the HTTP endpoint
-
-**Pros**: Access from anywhere, always on.
-**Cons**: Monthly cost, server maintenance, need to secure credentials.
-
-### Option 3: Docker Container
-
-```dockerfile
-FROM node:22-slim
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --production
-COPY build/ ./build/
-ENTRYPOINT ["node", "build/index.js"]
-```
-
-```bash
-docker build -t feedbin-mcp .
-docker run -e FEEDBIN_EMAIL=you@example.com -e FEEDBIN_PASSWORD=your-password feedbin-mcp
-```
-
-Deploy the container to any container host: **Fly.io**, **Railway**, **Render**, **Google Cloud Run**, **AWS ECS**, etc.
-
-**Pros**: Reproducible, easy to deploy to cloud platforms.
-**Cons**: Slight learning curve if you haven't used Docker.
-
-### Option 4: Serverless (AWS Lambda, Cloudflare Workers)
-
-Possible but more complex — MCP's stdio transport doesn't fit serverless natively. You'd need the HTTP+SSE transport and handle cold starts. Generally not recommended unless you have specific scaling needs.
-
-### Recommendation for Getting Started
-
-**Start with Option 1** (local). It requires zero infrastructure, and the MCP client handles the server lifecycle. Once you're comfortable, move to Docker + Fly.io (Option 3) if you want remote access.
-
 ## Development
 
 ```bash
-# Run directly without building (uses tsx)
+# stdio mode (for local MCP clients)
 FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm run dev
 
-# Build and run
-npm run build
-FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm start
+# HTTP mode (for testing remote deployment locally)
+FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password MCP_API_KEY=test-key npm run dev:http
 ```
 
 ## Troubleshooting
 
-- **"FEEDBIN_EMAIL and FEEDBIN_PASSWORD environment variables are required"** — Set the env vars before starting the server.
+- **"FEEDBIN_EMAIL and FEEDBIN_PASSWORD environment variables are required"** — Set the env vars before starting.
+- **"MCP_API_KEY environment variable is required"** — Only needed for HTTP mode (`start:http`). Generate one with the command above.
 - **401 errors from Feedbin** — Check your email/password. Use `verify_credentials` tool to test.
+- **403 from the MCP server** — Your `MCP_API_KEY` doesn't match. Check the `Authorization: Bearer ...` header.
 - **Tools not appearing in Claude** — Restart Claude Desktop after editing config. Check the config file path is correct.
 - **"Cannot find module" errors** — Run `npm run build` first. The server runs from compiled JS in `build/`.
