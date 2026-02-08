@@ -5,6 +5,8 @@
  *
  * Uses the Streamable HTTP transport so MCP clients can connect over the network.
  * Requires a bearer token (API_TOKEN env var) to prevent unauthorized access.
+ * The token can be provided either as a Bearer token in the Authorization header
+ * or as a `token` query parameter (e.g. /mcp?token=YOUR_TOKEN).
  *
  * Environment variables:
  *   FEEDBIN_EMAIL    – your Feedbin email (required)
@@ -40,7 +42,8 @@ if (!apiToken) {
   console.error(
     "Error: API_TOKEN environment variable is required.\n" +
       "Generate a random secret (e.g. `openssl rand -hex 32`) and set it as API_TOKEN.\n" +
-      "MCP clients must send this token as a Bearer token in the Authorization header."
+      "MCP clients must send this token as a Bearer token in the Authorization header\n" +
+      "or as a ?token= query parameter."
   );
   process.exit(1);
 }
@@ -61,15 +64,22 @@ function createMcpServer(): McpServer {
 // Track transports by session ID for routing subsequent requests
 const transports = new Map<string, StreamableHTTPServerTransport>();
 
-// --- Bearer token check ---
+// --- Token check (Authorization header or ?token= query parameter) ---
 function authenticateRequest(req: IncomingMessage, res: ServerResponse): boolean {
   const auth = req.headers.authorization;
-  if (!auth || auth !== `Bearer ${apiToken}`) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Unauthorized" }));
-    return false;
+  if (auth === `Bearer ${apiToken}`) {
+    return true;
   }
-  return true;
+
+  const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+  const queryToken = url.searchParams.get("token");
+  if (queryToken === apiToken) {
+    return true;
+  }
+
+  res.writeHead(401, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Unauthorized" }));
+  return false;
 }
 
 // --- HTTP request handler ---
