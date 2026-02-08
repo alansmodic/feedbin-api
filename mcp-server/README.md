@@ -33,12 +33,12 @@ FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm start
 
 ## Configuration
 
-The server reads two environment variables:
-
 | Variable | Required | Description |
 |---|---|---|
 | `FEEDBIN_EMAIL` | Yes | Your Feedbin account email |
 | `FEEDBIN_PASSWORD` | Yes | Your Feedbin account password |
+| `API_TOKEN` | HTTP mode only | Secret bearer token for remote access (generate with `openssl rand -hex 32`) |
+| `PORT` | No | Port for HTTP mode (default: 3000, Railway sets this automatically) |
 
 ## Connecting to an MCP Client
 
@@ -177,7 +177,52 @@ For remote access, deploy to a cheap VPS and use the HTTP+SSE transport instead 
 **Pros**: Access from anywhere, always on.
 **Cons**: Monthly cost, server maintenance, need to secure credentials.
 
-### Option 3: Docker Container
+### Option 3: Deploy to Railway (Recommended for Remote Access)
+
+The server includes a dedicated HTTP mode with bearer-token authentication, ready for Railway's deploy-from-GitHub workflow.
+
+**1. Set up Railway:**
+
+1. Create a new project on [Railway](https://railway.app/) and connect your GitHub repo.
+2. Set the **Root Directory** to `mcp-server` in service settings.
+3. Add these **Variables** in the Railway dashboard:
+
+| Variable | Value |
+|---|---|
+| `FEEDBIN_EMAIL` | Your Feedbin email |
+| `FEEDBIN_PASSWORD` | Your Feedbin password |
+| `API_TOKEN` | A secret token — generate one with `openssl rand -hex 32` |
+
+Railway sets `PORT` automatically. The included `railway.toml` handles build and start commands.
+
+**2. Deploy:**
+
+Push to your connected branch. Railway will build and deploy automatically.
+
+**3. Connect your MCP client:**
+
+Once deployed, Railway gives you a public URL (e.g. `https://your-service.up.railway.app`). Configure your MCP client to use the remote HTTP endpoint:
+
+```json
+{
+  "mcpServers": {
+    "feedbin": {
+      "type": "streamable-http",
+      "url": "https://your-service.up.railway.app/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_API_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+**Security:** Your Feedbin credentials are stored as encrypted environment variables in Railway (never in the repo). The `API_TOKEN` ensures only you can connect — anyone without the token gets a `401 Unauthorized` response.
+
+**Pros**: One-click deploys from GitHub, no server management, free tier available, credentials stay encrypted.
+**Cons**: Small monthly cost if you exceed the free tier.
+
+### Option 4: Docker Container
 
 ```dockerfile
 FROM node:22-slim
@@ -185,12 +230,17 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --production
 COPY build/ ./build/
-ENTRYPOINT ["node", "build/index.js"]
+ENTRYPOINT ["node", "build/http.js"]
 ```
 
 ```bash
 docker build -t feedbin-mcp .
-docker run -e FEEDBIN_EMAIL=you@example.com -e FEEDBIN_PASSWORD=your-password feedbin-mcp
+docker run \
+  -e FEEDBIN_EMAIL=you@example.com \
+  -e FEEDBIN_PASSWORD=your-password \
+  -e API_TOKEN=your-secret-token \
+  -p 3000:3000 \
+  feedbin-mcp
 ```
 
 Deploy the container to any container host: **Fly.io**, **Railway**, **Render**, **Google Cloud Run**, **AWS ECS**, etc.
@@ -198,23 +248,27 @@ Deploy the container to any container host: **Fly.io**, **Railway**, **Render**,
 **Pros**: Reproducible, easy to deploy to cloud platforms.
 **Cons**: Slight learning curve if you haven't used Docker.
 
-### Option 4: Serverless (AWS Lambda, Cloudflare Workers)
+### Option 5: Serverless (AWS Lambda, Cloudflare Workers)
 
-Possible but more complex — MCP's stdio transport doesn't fit serverless natively. You'd need the HTTP+SSE transport and handle cold starts. Generally not recommended unless you have specific scaling needs.
+Possible but more complex — you'd need to handle cold starts and potentially adapt the transport. Generally not recommended unless you have specific scaling needs.
 
 ### Recommendation for Getting Started
 
-**Start with Option 1** (local). It requires zero infrastructure, and the MCP client handles the server lifecycle. Once you're comfortable, move to Docker + Fly.io (Option 3) if you want remote access.
+**Start with Option 1** (local). It requires zero infrastructure, and the MCP client handles the server lifecycle. When you want remote access, **Option 3** (Railway) is the easiest path — just connect your GitHub repo and set three environment variables.
 
 ## Development
 
 ```bash
-# Run directly without building (uses tsx)
+# Run locally via stdio (for MCP clients that launch the process)
 FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm run dev
+
+# Run locally via HTTP (for testing remote deployment)
+FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password API_TOKEN=test-secret npm run dev:http
 
 # Build and run
 npm run build
-FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm start
+FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password npm start          # stdio
+FEEDBIN_EMAIL=you@example.com FEEDBIN_PASSWORD=your-password API_TOKEN=secret npm run start:http  # HTTP
 ```
 
 ## Troubleshooting
