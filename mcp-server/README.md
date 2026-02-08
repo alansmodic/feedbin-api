@@ -201,7 +201,9 @@ Push to your connected branch. Railway will build and deploy automatically.
 
 **3. Connect your MCP client:**
 
-Once deployed, Railway gives you a public URL (e.g. `https://your-service.up.railway.app`). Configure your MCP client to use the remote HTTP endpoint:
+Once deployed, Railway gives you a public URL (e.g. `https://your-service.up.railway.app`). Configure your MCP client to use the remote HTTP endpoint.
+
+**Option A — Authorization header (recommended):**
 
 ```json
 {
@@ -217,7 +219,20 @@ Once deployed, Railway gives you a public URL (e.g. `https://your-service.up.rai
 }
 ```
 
-**Security:** Your Feedbin credentials are stored as encrypted environment variables in Railway (never in the repo). The `API_TOKEN` ensures only you can connect — anyone without the token gets a `401 Unauthorized` response.
+**Option B — Query parameter** (useful when your MCP client doesn't support custom headers):
+
+```json
+{
+  "mcpServers": {
+    "feedbin": {
+      "type": "streamable-http",
+      "url": "https://your-service.up.railway.app/mcp?token=YOUR_API_TOKEN_HERE"
+    }
+  }
+}
+```
+
+**Security:** Your Feedbin credentials are stored as encrypted environment variables in Railway (never in the repo). The `API_TOKEN` ensures only you can connect — anyone without the token gets a `401 Unauthorized` response. When using the query parameter method, be aware the token may appear in server access logs.
 
 **Pros**: One-click deploys from GitHub, no server management, free tier available, credentials stay encrypted.
 **Cons**: Small monthly cost if you exceed the free tier.
