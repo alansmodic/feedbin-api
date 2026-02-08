@@ -1,0 +1,6 @@
+.git
+content
+README.md
+mcp-server/node_modules
+mcp-server/build
+mcp-server/README.md
