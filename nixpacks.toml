@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm"]
+
+[phases.install]
+cmds = ["cd mcp-server && npm install"]
+
+[phases.build]
+cmds = ["cd mcp-server && npm run build"]
+
+[start]
+cmd = "cd mcp-server && npm run start:http"
