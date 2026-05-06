@@ -93,6 +93,30 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // OPML export — proxy Feedbin's subscription list as XML
+  if (url.pathname === "/opml") {
+    if (!authenticateRequest(req, res)) return;
+
+    const basicAuth = Buffer.from(`${email}:${password}`).toString("base64");
+    const feedbinRes = await fetch("https://api.feedbin.com/v2/subscriptions.xml", {
+      headers: { Authorization: `Basic ${basicAuth}` },
+    });
+
+    if (!feedbinRes.ok) {
+      res.writeHead(feedbinRes.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Feedbin API error", status: feedbinRes.status }));
+      return;
+    }
+
+    const opml = await feedbinRes.text();
+    res.writeHead(200, {
+      "Content-Type": "text/xml; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    res.end(opml);
+    return;
+  }
+
   // All /mcp requests require auth
   if (url.pathname === "/mcp") {
     if (!authenticateRequest(req, res)) return;
@@ -147,4 +171,5 @@ server.listen(port, () => {
   console.error(`Feedbin MCP server (HTTP) listening on port ${port}`);
   console.error("POST/GET/DELETE /mcp — MCP Streamable HTTP endpoint");
   console.error("GET /health — health check");
+  console.error("GET /opml?token=… — OPML subscription export");
 });
